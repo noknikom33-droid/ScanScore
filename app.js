@@ -75,9 +75,9 @@ function toast(msg, kind = '') {
 /* ---------- Modal ---------- */
 function modal({ title, body, actions = [] }) {
   const ov = document.createElement('div'); ov.className = 'ov on';
-  ov.innerHTML = `<div class="modal"><div class="modal-h">${esc(title)}</div>
-    <div class="modal-b">${body}</div>
-    <div class="modal-f">${actions.map((a, i) => `<button class="btn ${a.cls || 'btn-ghost'} btn-sm px-3" data-i="${i}">${esc(a.label)}</button>`).join('')}</div></div>`;
+  ov.innerHTML = `<div class="mbox"><div class="mbox-h">${esc(title)}</div>
+    <div class="mbox-b">${body}</div>
+    <div class="mbox-f">${actions.map((a, i) => `<button class="btn ${a.cls || 'btn-ghost'} btn-sm px-3" data-i="${i}">${esc(a.label)}</button>`).join('')}</div></div>`;
   document.body.appendChild(ov);
   const close = () => ov.remove();
   ov.addEventListener('click', e => { if (e.target === ov) close(); });
