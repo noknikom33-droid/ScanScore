@@ -62,6 +62,26 @@ const DB = {
   wipe() { localStorage.removeItem(this.K); this._d = null; this.load(); },
 };
 
+/* ---------- Auth (ด่านกั้นหน้าใช้งาน — ฝั่ง client) ---------- */
+const AUTH = {
+  CK: 'scanscore.cred',      // {user, hash}
+  SK: 'scanscore.session',   // '1' เมื่อเข้าสู่ระบบ
+  DEFAULT: { user: 'admin', hash: 'f56d9128' },   // hash ของ admin1234
+  hash(str) { let h = 0x811c9dc5; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(16); },
+  cred() { try { return JSON.parse(localStorage.getItem(this.CK)) || this.DEFAULT; } catch (e) { return this.DEFAULT; } },
+  authed() { try { return sessionStorage.getItem(this.SK) === '1' || localStorage.getItem(this.SK) === '1'; } catch (e) { return false; } },
+  login(user, pass, remember) {
+    const c = this.cred();
+    if (user.trim() === c.user && this.hash(pass) === c.hash) {
+      try { (remember ? localStorage : sessionStorage).setItem(this.SK, '1'); } catch (e) {}
+      return true;
+    }
+    return false;
+  },
+  logout() { try { sessionStorage.removeItem(this.SK); localStorage.removeItem(this.SK); } catch (e) {} },
+  setCred(user, pass) { localStorage.setItem(this.CK, JSON.stringify({ user: user.trim(), hash: this.hash(pass) })); },
+};
+
 /* ---------- Toast ---------- */
 function toast(msg, kind = '') {
   let box = $('#toasts'); if (!box) { box = document.createElement('div'); box.id = 'toasts'; document.body.appendChild(box); }
@@ -101,7 +121,118 @@ const NAV = [
 const IC = { chev: '<path d="m9 18 6-6-6-6"/>', plus: '<path d="M5 12h14"/><path d="M12 5v14"/>' };
 const svg = (paths, cls = 'ic') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 
+/* ============================================================
+   LOGIN — หน้าจอเข้าสู่ระบบ (โทนเทคโนโลยี)
+   ============================================================ */
+let _loginFX = null;
+function stopLoginFX() { if (_loginFX) { cancelAnimationFrame(_loginFX); _loginFX = null; } }
+
+function renderLogin() {
+  stopCam && (typeof stopCam === 'function') && stopCam();
+  const c = AUTH.cred();
+  document.body.innerHTML = `
+  <div class="login">
+    <canvas class="login-fx" id="lfx"></canvas>
+    <div class="login-grid"></div>
+    <div class="login-blob b1"></div><div class="login-blob b2"></div><div class="login-blob b3"></div>
+    <div class="login-card">
+      <div class="login-glow"></div>
+      <div class="login-logo">
+        <svg width="60" height="60" viewBox="0 0 48 48" fill="none">
+          <defs><linearGradient id="llg" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#6366f1"/><stop offset=".55" stop-color="#8b5cf6"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs>
+          <rect width="48" height="48" rx="14" fill="url(#llg)"/>
+          <path d="M14 15v-2.5a2 2 0 0 1 2-2H19" stroke="#fff" stroke-opacity=".85" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M29 10.5h3a2 2 0 0 1 2 2V15" stroke="#fff" stroke-opacity=".85" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M34 33v2.5a2 2 0 0 1-2 2H29" stroke="#fff" stroke-opacity=".85" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M19 37.5h-3a2 2 0 0 1-2-2V33" stroke="#fff" stroke-opacity=".85" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="m17.5 24.2 4.6 4.6 8.4-9.6" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="login-scan"></span>
+      </div>
+      <h1 class="login-title">ScanScore</h1>
+      <p class="login-sub">ระบบสแกนตรวจข้อสอบอัจฉริยะ</p>
+      <form id="loginForm" autocomplete="off" novalidate>
+        <div class="lf" id="lfUser">
+          ${svg('<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>')}
+          <input id="luser" placeholder="ชื่อผู้ใช้" autocomplete="username" spellcheck="false">
+        </div>
+        <div class="lf" id="lfPass">
+          ${svg('<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>')}
+          <input id="lpass" type="password" placeholder="รหัสผ่าน" autocomplete="current-password">
+          <button type="button" class="leye" id="leye" title="แสดง/ซ่อนรหัสผ่าน">${svg('<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>')}</button>
+        </div>
+        <label class="lremember"><input type="checkbox" id="lremember"><span>จดจำการเข้าสู่ระบบในเครื่องนี้</span></label>
+        <div class="lerr" id="lerr"></div>
+        <button type="submit" class="lbtn" id="lbtn"><span>เข้าสู่ระบบ</span></button>
+      </form>
+      <div class="login-foot">ScanScore · ทำงานบนเบราว์เซอร์ · ปลอดภัยในเครื่องคุณ</div>
+    </div>
+  </div>`;
+
+  // particle field
+  const cv = $('#lfx'); if (cv && cv.getContext) startLoginFX(cv);
+
+  const eye = $('#leye'), pass = $('#lpass');
+  eye.addEventListener('click', () => {
+    pass.type = pass.type === 'password' ? 'text' : 'password';
+    eye.classList.toggle('on', pass.type === 'text');
+  });
+
+  const fail = () => {
+    const card = $('.login-card'), err = $('#lerr');
+    err.textContent = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
+    card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
+    $('#lfUser').classList.add('bad'); $('#lfPass').classList.add('bad');
+  };
+  $$('#luser,#lpass').forEach(i => i.addEventListener('input', () => {
+    $('#lerr').textContent = ''; $('#lfUser').classList.remove('bad'); $('#lfPass').classList.remove('bad');
+  }));
+
+  $('#loginForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const u = $('#luser').value, p = $('#lpass').value, r = $('#lremember').checked;
+    const btn = $('#lbtn'); btn.classList.add('loading');
+    setTimeout(() => {
+      if (AUTH.login(u, p, r)) {
+        stopLoginFX();
+        renderShell(); route();
+        toast('ยินดีต้อนรับเข้าสู่ ScanScore', 'ok');
+      } else { btn.classList.remove('loading'); fail(); }
+    }, 380);
+  });
+  $('#luser').focus();
+}
+
+function startLoginFX(cv) {
+  const ctx = cv.getContext('2d'); let W, H, pts;
+  const resize = () => {
+    W = cv.width = cv.offsetWidth; H = cv.height = cv.offsetHeight;
+    const n = Math.max(28, Math.min(70, (W * H) / 26000 | 0));
+    pts = Array.from({ length: n }, () => ({ x: Math.random() * W, y: Math.random() * H, vx: (Math.random() - .5) * .35, vy: (Math.random() - .5) * .35, r: Math.random() * 1.8 + .6 }));
+  };
+  resize(); window.addEventListener('resize', resize);
+  const step = () => {
+    ctx.clearRect(0, 0, W, H);
+    for (const p of pts) {
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < 0 || p.x > W) p.vx *= -1;
+      if (p.y < 0 || p.y > H) p.vy *= -1;
+    }
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const a = pts[i], b = pts[j], dx = a.x - b.x, dy = a.y - b.y, d = Math.hypot(dx, dy);
+        if (d < 118) { ctx.strokeStyle = `rgba(129,140,248,${(1 - d / 118) * .33})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+      }
+    }
+    for (const p of pts) { ctx.fillStyle = 'rgba(165,180,252,.9)'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill(); }
+    _loginFX = requestAnimationFrame(step);
+  };
+  step();
+}
+
 function renderShell() {
+  stopLoginFX();
   const p = DB.profile;
   document.body.innerHTML = `
   <div class="backdrop" id="bd"></div>
@@ -133,6 +264,9 @@ function renderShell() {
         <button class="btn btn-icon text-secondary" id="btnSettings" title="ตั้งค่า" style="background:transparent;border:0;color:#7c8aa8">
           ${svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>', 'ic-sm')}
         </button>
+        <button class="btn btn-icon text-secondary" id="btnLogout" title="ออกจากระบบ" style="background:transparent;border:0;color:#7c8aa8">
+          ${svg('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>', 'ic-sm')}
+        </button>
       </div>
     </div>
   </aside>
@@ -163,6 +297,9 @@ function renderShell() {
   bd.addEventListener('click', () => drawer(false));
   $$('.sb-a', sb).forEach(a => a.addEventListener('click', () => drawer(false)));
   $('#btnSettings').addEventListener('click', openSettings);
+  $('#btnLogout').addEventListener('click', () => {
+    confirmBox('ออกจากระบบ ScanScore?', () => { AUTH.logout(); stopCam && stopCam(); renderLogin(); }, 'ออกจากระบบ', false);
+  });
 }
 
 function setActive(id) {
@@ -184,6 +321,14 @@ function openSettings() {
     body: `<div class="field"><label>ชื่อครูผู้สอน</label><input class="inp" id="stName" value="${esc(p.name)}"></div>
       <div class="field"><label>ตำแหน่ง</label><input class="inp" id="stRole" value="${esc(p.role || '')}"></div>
       <hr style="border-color:var(--line)">
+      <div class="fw-6 mb-2" style="font-size:.9rem">บัญชีเข้าสู่ระบบ</div>
+      <div class="row g-2">
+        <div class="col-12 field mb-0"><label>ชื่อผู้ใช้</label><input class="inp" id="stUser" value="${esc(AUTH.cred().user)}" autocomplete="off"></div>
+        <div class="col-6 field mb-0"><label>รหัสผ่านใหม่</label><input class="inp" id="stPw1" type="password" placeholder="เว้นว่าง = ไม่เปลี่ยน" autocomplete="new-password"></div>
+        <div class="col-6 field mb-0"><label>ยืนยันรหัสผ่าน</label><input class="inp" id="stPw2" type="password" autocomplete="new-password"></div>
+      </div>
+      <button class="btn btn-soft btn-sm mt-2" id="stSaveCred">บันทึกบัญชีเข้าสู่ระบบ</button>
+      <hr style="border-color:var(--line)">
       <div class="d-flex gap-2 flex-wrap">
         <button class="btn btn-soft btn-sm" id="stExport">สำรองข้อมูล (.json)</button>
         <button class="btn btn-soft btn-sm" id="stImport">นำเข้าข้อมูล</button>
@@ -194,6 +339,19 @@ function openSettings() {
       DB.load().profile = { name: $('#stName', ov).value.trim() || 'ครูผู้สอน', role: $('#stRole', ov).value.trim() };
       DB.save(); renderShell(); route(); toast('บันทึกแล้ว', 'ok');
     }}],
+  });
+  $('#stSaveCred', m.ov).addEventListener('click', () => {
+    const u = $('#stUser', m.ov).value.trim(), p1 = $('#stPw1', m.ov).value, p2 = $('#stPw2', m.ov).value;
+    if (!u) { toast('กรุณาใส่ชื่อผู้ใช้', 'err'); return; }
+    if (p1 || p2) {
+      if (p1.length < 4) { toast('รหัสผ่านอย่างน้อย 4 ตัวอักษร', 'err'); return; }
+      if (p1 !== p2) { toast('ยืนยันรหัสผ่านไม่ตรงกัน', 'err'); return; }
+      AUTH.setCred(u, p1);                                   // เปลี่ยนชื่อ + รหัส
+    } else {
+      localStorage.setItem(AUTH.CK, JSON.stringify({ user: u, hash: AUTH.cred().hash })); // เปลี่ยนเฉพาะชื่อ คงรหัสเดิม
+    }
+    toast('บันทึกบัญชีแล้ว', 'ok');
+    $('#stPw1', m.ov).value = ''; $('#stPw2', m.ov).value = '';
   });
   $('#stExport', m.ov).addEventListener('click', () => {
     const blob = new Blob([DB.exportAll()], { type: 'application/json' });
@@ -1034,7 +1192,11 @@ function route() {
   ({ dashboard: pageDashboard, sheets: pageSheets, scan: pageScan, results: pageResults }[id] || pageDashboard)(params);
 }
 
-window.addEventListener('hashchange', route);
-window.addEventListener('DOMContentLoaded', () => { DB.load(); renderShell(); route(); });
+window.addEventListener('hashchange', () => { if (AUTH.authed()) route(); });
+window.addEventListener('DOMContentLoaded', () => {
+  DB.load();
+  if (AUTH.authed()) { renderShell(); route(); }
+  else { renderLogin(); }
+});
 
 })();
