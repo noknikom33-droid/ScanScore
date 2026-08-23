@@ -498,95 +498,147 @@ function sheetEditor(id) {
 }
 
 /* ============================================================
-   ANSWER-SHEET LAYOUT (ใช้ร่วมกันทั้งพิมพ์และสแกน)
-   canonical 800 x 1120
+   GEOMETRY (มิลลิเมตร) — ใช้ร่วมกันทั้งพิมพ์และสแกน
+   หน่วย = 1 ใบ กว้าง 210mm, สูง 148.5 (ครึ่งแผ่น) หรือ 297 (A4)
+   จุดกำกับ 4 มุม (สี่เหลี่ยมดำ) ใช้เล็งตำแหน่งตอนสแกน
    ============================================================ */
-function buildLayout(nQ, nC, idDigits = 0) {
-  const W = 800, H = 1120, pad = 56;
-  let headerH = 158, idBlock = null;
-  if (idDigits > 0) {
-    const top = 150, labelY = top + 14, boxY = top + 22, boxH = 22;
-    const gTop = top + 66, rID = 8, rowStep = 15, colStep = 44, blockLeft = pad + 30;
-    const cols = [];
+function sheetGeom(s) {
+  const nQ = s.questions, nC = s.choices, idDigits = s.idDigits || 0, half = (s.paper === 'half');
+  const WU = 210, HU = half ? 148.5 : 297;
+  const mI = 8.5, mIy = 6.5, mS = 9;                         // จุดมุม: ระยะขอบ + ขนาด
+  const marks = [
+    { x: mI, y: mIy, w: mS, h: mS },
+    { x: WU - mI - mS, y: mIy, w: mS, h: mS },
+    { x: mI, y: HU - mIy - mS, w: mS, h: mS },
+    { x: WU - mI - mS, y: HU - mIy - mS, w: mS, h: mS },
+  ];
+  const cm = { L: mI + mS / 2, R: WU - mI - mS / 2, T: mIy + mS / 2, B: HU - mIy - mS / 2 };
+
+  const hasID = idDigits > 0;
+  const title = { y: 12.4 };
+  const leftW = hasID ? 110.6 : 184;
+  const nameBoxes = [
+    { x: 13, y: 20.5, w: leftW, h: 7.2, a: 'ชื่อ-สกุล', af: 3.4, b: 'เลขที่', bf: 1 },
+    { x: 13, y: 28.7, w: leftW, h: 7.2, a: 'ชั้น/ห้อง', af: 1, b: 'วันที่', bf: 1.3 },
+  ];
+  let headerBottom = 28.7 + 7.2, idGrid = null;
+  if (hasID) {
+    const bx = 127.6, by = 20.5, bw = 69.4, rID = 3.7, colStep = 5.6, rowStep = 5.2;
+    const firstColX = 138.45, firstRowY = 26.65, wrX = 131.1, wrTop = 25.9;
+    const rows = [];
     for (let d = 0; d < idDigits; d++) {
-      const cx = blockLeft + d * colStep, bub = [];
-      for (let v = 0; v < 10; v++) bub.push({ v, x: cx, y: gTop + v * rowStep });
-      cols.push({ d, x: cx, bubbles: bub });
+      const cy = firstRowY + d * rowStep, bub = [];
+      for (let v = 0; v < 10; v++) bub.push({ v, x: firstColX + v * colStep, y: cy });
+      rows.push({ d, cy, bub, wr: { x: wrX, y: wrTop + d * rowStep, w: 6, h: 5.2 } });
     }
-    const bandBottom = gTop + 9 * rowStep + rID + 6;
-    idBlock = { digits: idDigits, cols, labelY, boxY, boxH, gridTop: gTop, rID, rowStep, colStep, blockLeft, bandBottom };
-    headerH = bandBottom + 16;
+    const gh = Math.max(28.3, 6.15 + idDigits * rowStep + 2);
+    idGrid = { box: { x: bx, y: by, w: bw, h: gh }, titleY: by + 1.3, rows, rID };
+    headerBottom = Math.max(headerBottom, by + gh);
   }
-  const gridTop = headerH, gridBottom = H - 40;
-  const numCols = Math.ceil(nQ / 25), perCol = Math.ceil(nQ / numCols);
-  const colGap = 16, colW = (W - 2 * pad - (numCols - 1) * colGap) / numCols;
-  const rowH = (gridBottom - gridTop) / perCol;
-  const R = Math.min(14, rowH * 0.34), numW = 34;
-  const bubbles = [];
+  const instrY = headerBottom + 2.6;
+  const qTop = instrY + 4.5;
+  const footerY = HU - 8.8;
+  const qBottom = footerY - 3;
+
+  const marginX = 11.5, rightX = 13;
+  const usableW = WU - marginX - rightX;
+  const minRowStep = 6.2, maxRowStep = 7.2;
+  const perColMax = Math.max(1, Math.floor((qBottom - qTop) / minRowStep));
+  let numCols = Math.max(1, Math.ceil(nQ / perColMax));
+  numCols = Math.min(numCols, 4);
+  const perCol = Math.ceil(nQ / numCols);
+  const rowStep = Math.max(minRowStep, Math.min(maxRowStep, (qBottom - qTop) / perCol));
+  const colPitch = usableW / numCols;
+  const numW = 9, chArea = colPitch - numW - 3;
+  const chStep = Math.min(7, chArea / nC);
+  const dQ = Math.min(4.9, chStep * 0.72);
+  const rQ = dQ / 2;
+  const labels = labelsFor(s.labelKind, nC);
+
+  const questions = [];
   for (let q = 0; q < nQ; q++) {
     const col = Math.floor(q / perCol), row = q % perCol;
-    const x0 = pad + col * (colW + colGap), cy = gridTop + rowH * (row + 0.5);
-    const bx0 = x0 + numW, sp = (colW - numW) / nC, choices = [];
-    for (let c = 0; c < nC; c++) choices.push({ c, x: bx0 + sp * (c + 0.5), y: cy });
-    bubbles.push({ q, numX: x0 + 6, numY: cy, choices });
+    const colBase = marginX + col * colPitch;
+    const cy = qTop + row * rowStep + rowStep / 2;
+    const numRight = colBase + numW;
+    const firstCh = numRight + 3 + rQ;
+    const choices = [];
+    for (let c = 0; c < nC; c++) choices.push({ c, x: firstCh + c * chStep, y: cy });
+    questions.push({ q, numX: numRight, numY: cy, choices });
   }
-  return { W, H, pad, headerH, R, bubbles, numCols, idBlock };
+  return { WU, HU, half, cm, marks, title, nameBoxes, idGrid, instrY, footerY, questions, rQ, labels, hasID, idDigits };
 }
 
-function buildSheetSVG(s) {
-  const idDigits = s.idDigits || 0;
-  const L = buildLayout(s.questions, s.choices, idDigits), labels = labelsFor(s.labelKind, s.choices);
-  const marks = L.bubbles.map(b => `
-    <text x="${b.numX}" y="${b.numY + 4}" font-size="13" font-family="Prompt" fill="#111" font-weight="600">${b.q + 1}</text>
-    ${b.choices.map((ch, i) => `<circle cx="${ch.x}" cy="${ch.y}" r="${L.R}" fill="none" stroke="#111" stroke-width="1.4"/>
-      <text x="${ch.x}" y="${ch.y + 4}" text-anchor="middle" font-size="11" font-family="Prompt" fill="#333">${labels[i]}</text>`).join('')}`).join('');
-
-  let idSvg = '';
-  if (L.idBlock) {
-    const ib = L.idBlock;
-    idSvg = `<text x="${L.pad}" y="${ib.labelY}" font-size="12" font-family="Prompt" fill="#111" font-weight="600">รหัสนักเรียน · เขียนเลขในช่องแล้วระบายวงให้ตรง</text>`
-      + ib.cols.map(col => `<rect x="${col.x-16}" y="${ib.boxY}" width="32" height="${ib.boxH}" rx="4" fill="none" stroke="#111" stroke-width="1.2"/>`).join('')
-      + ib.cols.map(col => col.bubbles.map(b =>
-          `<circle cx="${b.x}" cy="${b.y}" r="${ib.rID}" fill="none" stroke="#111" stroke-width="1.1"/>
-           <text x="${b.x}" y="${b.y+3}" text-anchor="middle" font-size="9" font-family="Prompt" fill="#666">${b.v}</text>`).join('')).join('');
+/* สร้าง HTML ของ 1 ใบ (absolute mm) */
+function unitHTML(s, g) {
+  const mk = g.marks.map(m => `<div class="mk" style="left:${m.x}mm;top:${m.y}mm;width:${m.w}mm;height:${m.h}mm"></div>`).join('');
+  const title = `<div class="t" style="left:${g.cm.L}mm;top:${g.title.y}mm;width:${g.cm.R - g.cm.L}mm;text-align:center;font-size:3.6mm;font-weight:600">${esc(s.name)}<span style="font-weight:400;font-size:2.6mm;color:#333"> · ${esc(s.subject || '')}</span></div>`;
+  const boxes = g.nameBoxes.map(b => `<div class="bx" style="left:${b.x}mm;top:${b.y}mm;width:${b.w}mm;height:${b.h}mm"></div>
+    <div class="fr" style="left:${b.x + 2.2}mm;top:${b.y + 1.95}mm;width:${b.w - 4.4}mm;font-size:2.7mm"><span>${b.a}</span><span class="fd" style="flex:${b.af}"></span><span>${b.b}</span><span class="fd" style="flex:${b.bf}"></span></div>`).join('');
+  let idHTML = '';
+  if (g.idGrid) {
+    const G = g.idGrid;
+    idHTML = `<div class="bx" style="left:${G.box.x}mm;top:${G.box.y}mm;width:${G.box.w}mm;height:${G.box.h}mm"></div>
+      <div class="t" style="left:${G.box.x}mm;top:${G.titleY}mm;width:${G.box.w}mm;text-align:center;font-size:2.3mm;font-weight:500">รหัสนักเรียน (ฝนบรรทัดละ 1 ตัว)</div>`
+      + G.rows.map(r => `<div class="wr" style="left:${r.wr.x}mm;top:${r.wr.y}mm;width:${r.wr.w}mm;height:${r.wr.h}mm"></div>`
+        + r.bub.map(b => `<div class="b" style="left:${b.x}mm;top:${b.y}mm;width:${G.rID}mm;height:${G.rID}mm;font-size:1.94mm">${b.v}</div>`).join('')).join('');
   }
-  const nameLine = `<text x="${L.pad+14}" y="118" font-size="14" font-family="Prompt" fill="#111">ชื่อ-สกุล ...............................................</text>`
-    + (L.idBlock ? '' : `<text x="470" y="118" font-size="14" font-family="Prompt" fill="#111">รหัส/เลขที่ .......................</text>`);
-
-  return `<svg viewBox="0 0 ${L.W} ${L.H}" xmlns="http://www.w3.org/2000/svg" width="100%">
-    <rect x="8" y="8" width="${L.W-16}" height="${L.H-16}" fill="none" stroke="#111" stroke-width="6"/>
-    <rect x="20" y="20" width="34" height="34" fill="#111"/><rect x="${L.W-54}" y="20" width="34" height="34" fill="#111"/>
-    <rect x="20" y="${L.H-54}" width="34" height="34" fill="#111"/><rect x="${L.W-54}" y="${L.H-54}" width="34" height="34" fill="#111"/>
-    <text x="${L.W/2}" y="52" text-anchor="middle" font-size="26" font-weight="600" font-family="Prompt" fill="#111">${esc(s.name)}</text>
-    <text x="${L.W/2}" y="80" text-anchor="middle" font-size="15" font-family="Prompt" fill="#444">${esc(s.subject||'')} · ${s.questions} ข้อ</text>
-    ${nameLine}
-    <line x1="${L.pad}" y1="${L.headerH-16}" x2="${L.W-L.pad}" y2="${L.headerH-16}" stroke="#ccc" stroke-width="1"/>
-    <text x="${L.pad}" y="${L.headerH-4}" font-size="10.5" font-family="Prompt" fill="#888">ระบายวงกลมให้เต็มด้วยดินสอ/ปากกาสีเข้ม · ถ่ายให้เห็นกรอบสี่เหลี่ยมครบทั้งใบ</text>
-    ${idSvg}
-    ${marks}
-  </svg>`;
+  const instr = `<div class="t" style="left:13mm;top:${g.instrY}mm;width:184mm;font-size:2.4mm;color:#333">คำชี้แจง: ใช้ดินสอ/ปากกาสีเข้ม ระบายวงกลมคำตอบให้เต็มวง ข้อละ 1 ตัวเลือก · ห้ามขีดทับสี่เหลี่ยมดำมุมกระดาษ</div>`;
+  const d = (g.rQ * 2).toFixed(2), fz = (g.rQ * 2 * 0.52).toFixed(2);
+  const qs = g.questions.map(q => {
+    const num = `<div class="t" style="left:${q.numX - 8}mm;top:${(q.numY - 1.3).toFixed(2)}mm;width:8mm;text-align:right;font-size:2.6mm">${q.q + 1}.</div>`;
+    const bs = q.choices.map((ch, i) => `<div class="b" style="left:${(ch.x - g.rQ).toFixed(2)}mm;top:${(ch.y - g.rQ).toFixed(2)}mm;width:${d}mm;height:${d}mm;font-size:${fz}mm">${g.labels[i]}</div>`).join('');
+    return num + bs;
+  }).join('');
+  const footer = `<div class="t" style="left:13mm;top:${g.footerY}mm;width:184mm;text-align:center;font-size:2.2mm;color:#64748b">${esc(s.name)} · ${s.questions} ข้อ · ScanScore</div>`;
+  return mk + title + boxes + idHTML + instr + qs + footer;
 }
 
 function printSheet(s) {
   if (!s) return;
-  const svgSheet = buildSheetSVG(s);
-  const half = (s.paper === 'half');
-  const pageSize = half ? 'A4 landscape' : 'A4 portrait';
-  const bodyContent = half
-    ? `<div class="two"><div class="one">${svgSheet}</div><div class="one">${svgSheet}</div></div>`
-    : `<div class="page">${svgSheet}</div>`;
+  const g = sheetGeom(s);
+  const unit = unitHTML(s, g);
+  const units = g.half
+    ? `<div class="unit" style="top:0mm;height:148.5mm">${unit}</div>
+       <div class="unit" style="top:148.5mm;height:148.5mm">${unit}</div>
+       <div class="cut" style="top:148.5mm"><span>ตัดตามเส้นประ</span></div>`
+    : `<div class="unit" style="top:0mm;height:297mm">${unit}</div>`;
+  const info = g.half ? 'ครึ่งแผ่น · 2 ชุด/แผ่น · ตัดกลางหน้าเพื่อแยกใบ' : 'A4 เต็มแผ่น · 1 ชุด/แผ่น';
 
   const w = window.open('', '_blank');
-  w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>${esc(s.name)}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;600&display=swap" rel="stylesheet">
-    <style>@page{size:${pageSize};margin:8mm}body{margin:0;font-family:Prompt,sans-serif}
-    .bar{padding:10px 14px;text-align:center;background:#f1f5f9;border-bottom:1px solid #e2e8f0}
-    button{font-family:inherit;padding:.5rem 1.2rem;border:0;border-radius:8px;background:#6366f1;color:#fff;cursor:pointer;font-size:.9rem}
-    .page{max-width:800px;margin:0 auto;padding:12px}
-    .two{display:flex;gap:8mm;align-items:flex-start;padding:8px}.two .one{flex:1 1 0;min-width:0}
-    @media print{.bar{display:none}.page,.two{padding:0}}</style></head>
-    <body><div class="bar noprint"><button onclick="window.print()">🖨️ พิมพ์ / บันทึกเป็น PDF</button>${half?'&nbsp; <span style="color:#64748b;font-size:.82rem">โหมดครึ่งแผ่น · 2 ชุด/แผ่น · ตัดกลางหน้าเพื่อแยกใบ</span>':''}</div>
-    ${bodyContent}</body></html>`);
+  w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>กระดาษคำตอบ · ${esc(s.name)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Prompt',sans-serif;background:#eef1f7;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.bar{position:sticky;top:0;z-index:9;background:#fff;border-bottom:1px solid #e2e8f0;padding:.7rem 1rem;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.bar button{font-family:inherit;font-size:.9rem;border:0;background:linear-gradient(120deg,#4f46e5,#7c3aed,#06b6d4);color:#fff;padding:.5rem 1.1rem;border-radius:10px;cursor:pointer}
+.bar .ttl{font-weight:600;font-size:.92rem;margin-right:auto;letter-spacing:-.3px}
+.hint{font-size:.78rem;color:#64748b;padding:.55rem 1rem;background:#fff8e6;border-bottom:1px solid #fde68a}
+.stage{padding:18px 8px;display:flex;flex-direction:column;align-items:center;gap:18px}
+.paper{width:210mm;height:297mm;background:#fff;position:relative;box-shadow:0 18px 44px -18px rgba(15,23,42,.4);flex:none;transform-origin:top center;overflow:hidden}
+.unit{position:absolute;left:0;width:210mm;overflow:hidden}
+.cut{position:absolute;left:0;width:210mm;border-top:.3mm dashed #64748b}
+.cut span{position:absolute;left:50%;top:-2.1mm;transform:translateX(-50%);background:#fff;padding:0 2mm;font-size:2.3mm;color:#64748b;white-space:nowrap}
+.mk{position:absolute;background:#000}
+.b{position:absolute;border:.32mm solid #111;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#333;line-height:1;font-weight:400}
+.t{position:absolute;line-height:1.25;white-space:nowrap}
+.fr{position:absolute;display:flex;align-items:flex-end;gap:1.6mm;line-height:1.25;white-space:nowrap}
+.fd{border-bottom:.25mm dotted #94a3b8;min-width:8mm;margin-bottom:.2mm}
+.bx{position:absolute;border:.28mm solid #333;border-radius:1.2mm}
+.wr{position:absolute;border:.28mm solid #333;border-radius:.7mm;background:#fff}
+@media print{@page{size:A4;margin:0}body{background:#fff}.bar,.hint,.noprint{display:none!important}.stage{padding:0;gap:0}.paper{box-shadow:none;transform:none!important;page-break-after:always;break-after:page}.paper:last-child{page-break-after:auto;break-after:auto}}
+</style></head><body>
+<div class="bar"><span class="ttl">${esc(s.name)} · ${s.questions} ข้อ ${s.choices} ตัวเลือก · ${info}</span>
+<button onclick="window.print()">🖨️ พิมพ์ / บันทึกเป็น PDF</button></div>
+<div class="hint">พิมพ์ลง A4 · ตั้งค่าการพิมพ์: ขอบกระดาษ = ไม่มี (None) และมาตราส่วน = 100% · ห้ามย่อ/ขยาย เพื่อให้สแกนตรวจได้แม่นยำ${g.half ? ' · เมื่อพิมพ์เสร็จให้ตัดตามเส้นประกลางแผ่น จะได้ 2 ใบต่อแผ่น' : ''}</div>
+<div class="stage" id="stage"><div class="paper">${units}</div></div>
+<script>
+function fit(){var w=document.getElementById('stage').clientWidth-16,px=210*96/25.4,z=Math.min(1,w/px);
+document.querySelectorAll('.paper').forEach(function(p){p.style.transform='scale('+z+')';p.style.marginBottom=(297*96/25.4)*(z-1)+'px';});}
+addEventListener('resize',fit);fit();
+</script></body></html>`);
   w.document.close();
 }
 
@@ -700,82 +752,129 @@ function otsu(gray) {
     if(between>max){max=between;thr=i;} }
   return thr;
 }
+/* หาจุดกำกับ 4 มุม (สี่เหลี่ยมดำ) ด้วย connected-components */
+function findCorners(gray, W, H, thr) {
+  const dark = new Uint8Array(W * H);
+  for (let i = 0; i < dark.length; i++) dark[i] = gray[i] < thr ? 1 : 0;
+  const lbl = new Int32Array(W * H);
+  const comps = [];
+  const stack = [];
+  let cur = 0;
+  for (let i0 = 0; i0 < W * H; i0++) {
+    if (!dark[i0] || lbl[i0]) continue;
+    cur++; let area = 0, sx = 0, sy = 0, minx = W, miny = H, maxx = 0, maxy = 0;
+    stack.push(i0); lbl[i0] = cur;
+    while (stack.length) {
+      const p = stack.pop(), x = p % W, y = (p / W) | 0;
+      area++; sx += x; sy += y;
+      if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y;
+      if (x > 0)     { const q = p - 1; if (dark[q] && !lbl[q]) { lbl[q] = cur; stack.push(q); } }
+      if (x < W - 1) { const q = p + 1; if (dark[q] && !lbl[q]) { lbl[q] = cur; stack.push(q); } }
+      if (y > 0)     { const q = p - W; if (dark[q] && !lbl[q]) { lbl[q] = cur; stack.push(q); } }
+      if (y < H - 1) { const q = p + W; if (dark[q] && !lbl[q]) { lbl[q] = cur; stack.push(q); } }
+    }
+    comps.push({ area, cx: sx / area, cy: sy / area, minx, miny, maxx, maxy });
+  }
+  const side = 0.043 * W, expA = side * side;
+  const cand = comps.filter(c => {
+    const bw = c.maxx - c.minx + 1, bh = c.maxy - c.miny + 1, ar = bw / bh, sol = c.area / (bw * bh);
+    return c.area >= expA * 0.35 && c.area <= expA * 5 && ar >= 0.5 && ar <= 2 && sol >= 0.55;
+  });
+  if (cand.length < 4) return null;
+  const goals = { TL: [0, 0], TR: [W, 0], BR: [W, H], BL: [0, H] };
+  const pick = {};
+  for (const k in goals) {
+    const gx = goals[k][0], gy = goals[k][1]; let best = null, bd = Infinity;
+    for (const c of cand) { const dd = (c.cx - gx) ** 2 + (c.cy - gy) ** 2; if (dd < bd) { bd = dd; best = c; } }
+    pick[k] = best;
+  }
+  if (new Set([pick.TL, pick.TR, pick.BR, pick.BL]).size < 4) return null;
+  return {
+    TL: { x: pick.TL.cx, y: pick.TL.cy }, TR: { x: pick.TR.cx, y: pick.TR.cy },
+    BR: { x: pick.BR.cx, y: pick.BR.cy }, BL: { x: pick.BL.cx, y: pick.BL.cy },
+  };
+}
+
 function gradeFromCanvas(srcCanvas) {
   const s = DB.sheet(scanState.sheetId);
   const stage = $('#scStage'); stage.innerHTML = `<div class="d-flex align-items-center justify-content-center h-100" style="color:#fff">กำลังตรวจ...</div>`;
 
-  // downscale for processing
-  const W = srcCanvas.width, H = srcCanvas.height;
-  const ctx = srcCanvas.getContext('2d');
-  const px = ctx.getImageData(0,0,W,H).data;
-  const gray = new Uint8ClampedArray(W*H);
-  for (let i=0,p=0;i<px.length;i+=4,p++) gray[p]=(px[i]*0.299+px[i+1]*0.587+px[i+2]*0.114)|0;
+  // ย่อภาพเพื่อประมวลผลเร็ว (กว้างไม่เกิน 760px)
+  const sw = srcCanvas.width, sh = srcCanvas.height;
+  const procW = Math.min(760, sw), f = procW / sw, procH = Math.round(sh * f);
+  const pc = document.createElement('canvas'); pc.width = procW; pc.height = procH;
+  pc.getContext('2d').drawImage(srcCanvas, 0, 0, procW, procH);
+  const W = procW, H = procH;
+  const px = pc.getContext('2d').getImageData(0, 0, W, H).data;
+  const gray = new Uint8ClampedArray(W * H);
+  for (let i = 0, p = 0; i < px.length; i += 4, p++) gray[p] = (px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114) | 0;
   const thr = otsu(gray);
-  const isDark = (x,y) => gray[(y*W+x)] < thr;
 
-  // detect frame (solid border rectangle) via projections
-  const rowDark = new Int32Array(H), colDark = new Int32Array(W);
-  for (let y=0;y<H;y++){ let c=0; const off=y*W; for (let x=0;x<W;x++) if(gray[off+x]<thr) c++; rowDark[y]=c; }
-  for (let x=0;x<W;x++){ let c=0; for (let y=0;y<H;y++) if(gray[y*W+x]<thr) c++; colDark[x]=c; }
-  const rTh = W*0.45, cTh = H*0.45;
-  let top=-1,bot=-1,left=-1,right=-1;
-  for (let y=0;y<H;y++) if(rowDark[y]>rTh){top=y;break;}
-  for (let y=H-1;y>=0;y--) if(rowDark[y]>rTh){bot=y;break;}
-  for (let x=0;x<W;x++) if(colDark[x]>cTh){left=x;break;}
-  for (let x=W-1;x>=0;x--) if(colDark[x]>cTh){right=x;break;}
+  const g = sheetGeom(s);
+  let C = findCorners(gray, W, H, thr);
+  const ok = !!C;
+  if (!C) {  // สำรอง: สมมติว่าวางกระดาษเต็มเฟรม
+    const mx = W * 0.05, my = H * 0.05;
+    C = { TL: { x: mx, y: my }, TR: { x: W - mx, y: my }, BR: { x: W - mx, y: H - my }, BL: { x: mx, y: H - my } };
+  }
 
-  let x0,y0,x1,y1;
-  const ok = top>=0 && bot>top+H*0.3 && left>=0 && right>left+W*0.3;
-  if (ok) { x0=left; y0=top; x1=right; y1=bot; }
-  else    { x0=W*0.04; y0=H*0.04; x1=W*0.96; y1=H*0.96; }  // fallback: assume aligned in frame
+  // แมปพิกัด mm → พิกเซล ด้วย bilinear ระหว่างจุด 4 มุม
+  const lerp = (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+  const cmW = g.cm.R - g.cm.L, cmH = g.cm.B - g.cm.T;
+  const mapMM = (X, Y) => {
+    const u = (X - g.cm.L) / cmW, v = (Y - g.cm.T) / cmH;
+    const top = lerp(C.TL, C.TR, u), bot = lerp(C.BL, C.BR, u);
+    return lerp(top, bot, v);
+  };
+  const topW = Math.hypot(C.TR.x - C.TL.x, C.TR.y - C.TL.y);
+  const rPX = rMM => Math.max(2, (rMM / cmW) * topW * 0.72 | 0);
 
-  const L = buildLayout(s.questions, s.choices, s.idDigits || 0);
-  const scale = (x1 - x0) / L.W;
-  const mapX = X => x0 + (X / L.W) * (x1 - x0);
-  const mapY = Y => y0 + (Y / L.H) * (y1 - y0);
-
-  // ความเข้มเฉลี่ยของวง (0 = ว่าง/ขาว, 1 = ดำเต็ม) — ระบุรัศมี canonical ได้ ทนต่อแสงมากกว่าไบนารี
-  const meanDark = (X, Y, rCanon) => {
-    const cx = mapX(X)|0, cy = mapY(Y)|0, r = Math.max(2, (rCanon * 0.72 * scale)|0);
-    let sum=0, tot=0;
-    for (let dy=-r;dy<=r;dy++) for (let dx=-r;dx<=r;dx++){
-      if (dx*dx+dy*dy>r*r) continue;
-      const xx=cx+dx, yy=cy+dy; if(xx<0||yy<0||xx>=W||yy>=H) continue;
-      tot++; sum += gray[yy*W+xx];
+  const meanDark = (X, Y, rMM) => {
+    const P = mapMM(X, Y), cx = P.x | 0, cy = P.y | 0, r = rPX(rMM);
+    let sum = 0, tot = 0;
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (dx * dx + dy * dy > r * r) continue;
+      const xx = cx + dx, yy = cy + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+      tot++; sum += gray[yy * W + xx];
     }
-    return tot ? (255 - sum/tot) / 255 : 0;
+    return tot ? (255 - sum / tot) / 255 : 0;
   };
 
   const answers = [], flags = [];
-  for (const b of L.bubbles) {
-    const fills = b.choices.map(ch => meanDark(ch.x, ch.y, L.R));
-    let best=-1, bv=0, second=0;
-    fills.forEach((f,i)=>{ if(f>bv){second=bv;bv=f;best=i;} else if(f>second){second=f;} });
-    if (bv < 0.30) { answers.push(null); flags.push('blank'); }         // ไม่มีร่องรอยระบายชัด
-    else if (bv - second < 0.15 && second > 0.25) { answers.push(best); flags.push('unsure'); } // ระบายซ้ำ/ไม่ชัด
+  for (const q of g.questions) {
+    const fills = q.choices.map(ch => meanDark(ch.x, ch.y, g.rQ));
+    let best = -1, bv = 0, second = 0;
+    fills.forEach((val, i) => { if (val > bv) { second = bv; bv = val; best = i; } else if (val > second) second = val; });
+    if (bv < 0.30) { answers.push(null); flags.push('blank'); }
+    else if (bv - second < 0.15 && second > 0.25) { answers.push(best); flags.push('unsure'); }
     else { answers.push(best); flags.push('ok'); }
   }
 
-  // อ่านรหัสนักเรียนจากตารางฝน (ถ้ามี)
+  // อ่านรหัสนักเรียน: แต่ละแถว = 1 หลัก, คอลัมน์ = ค่า 0-9
   let readId = '';
-  if (L.idBlock) {
-    for (const col of L.idBlock.cols) {
-      const fills = col.bubbles.map(b => meanDark(b.x, b.y, L.idBlock.rID));
-      let best=-1, bv=0, second=0;
-      fills.forEach((f,i)=>{ if(f>bv){second=bv;bv=f;best=i;} else if(f>second){second=f;} });
+  if (g.idGrid) {
+    const rID = g.idGrid.rID / 2;
+    for (const row of g.idGrid.rows) {
+      const fills = row.bub.map(b => meanDark(b.x, b.y, rID));
+      let best = -1, bv = 0, second = 0;
+      fills.forEach((val, i) => { if (val > bv) { second = bv; bv = val; best = i; } else if (val > second) second = val; });
       readId += (bv >= 0.30 && (bv - second) >= 0.10) ? String(best) : '_';
     }
   }
   scanState.studentId = readId;
 
-  // preview cropped region
-  const prev = document.createElement('canvas'); prev.width=L.W; prev.height=L.H;
-  prev.getContext('2d').drawImage(srcCanvas, x0,y0,x1-x0,y1-y0, 0,0,L.W,L.H);
-  stage.innerHTML=''; prev.style.width='100%'; prev.style.height='100%'; prev.style.objectFit='contain'; stage.appendChild(prev);
+  // แสดงภาพที่ย่อ + จุดมุมที่จับได้ ให้ครูตรวจสอบ
+  const disp = pc;
+  const dctx = disp.getContext('2d');
+  dctx.strokeStyle = ok ? '#22c55e' : '#f59e0b'; dctx.lineWidth = Math.max(2, W / 220); dctx.fillStyle = dctx.strokeStyle;
+  dctx.beginPath();
+  dctx.moveTo(C.TL.x, C.TL.y); dctx.lineTo(C.TR.x, C.TR.y); dctx.lineTo(C.BR.x, C.BR.y); dctx.lineTo(C.BL.x, C.BL.y); dctx.closePath(); dctx.stroke();
+  [C.TL, C.TR, C.BR, C.BL].forEach(pt => { dctx.beginPath(); dctx.arc(pt.x, pt.y, Math.max(3, W / 130), 0, 7); dctx.fill(); });
+  stage.innerHTML = ''; disp.style.width = '100%'; disp.style.height = '100%'; disp.style.objectFit = 'contain'; stage.appendChild(disp);
 
   scanState.answers = answers; scanState.flags = flags;
-  const unsure = flags.filter(f=>f!=='ok').length;
-  toast(ok ? `ตรวจแล้ว${unsure?` · มี ${unsure} ข้อควรตรวจสอบ`:''}` : 'ไม่พบกรอบชัดเจน — โปรดตรวจทานคำตอบ', ok?'ok':'warn');
+  const unsure = flags.filter(fl => fl !== 'ok').length;
+  toast(ok ? `ตรวจแล้ว${unsure ? ` · มี ${unsure} ข้อควรตรวจสอบ` : ''}` : 'ไม่พบจุดมุม 4 จุด — โปรดตรวจทานคำตอบ', ok ? 'ok' : 'warn');
   renderReview(s, answers, flags);
 }
 
