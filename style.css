@@ -153,9 +153,26 @@ select.inp{cursor:pointer}
 .ov{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:120;display:none;
   align-items:center;justify-content:center;padding:16px}
 .ov.on{display:flex}
-.modal{background:#fff;border-radius:18px;width:100%;max-width:460px;box-shadow:0 30px 60px -20px rgba(0,0,0,.4)}
+.modal{background:#fff;border-radius:18px;width:100%;max-width:560px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 30px 60px -20px rgba(0,0,0,.4)}
 .modal-h{padding:18px 20px;border-bottom:1px solid var(--line);font-weight:600}
-.modal-b{padding:20px}.modal-f{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end}
+.modal-b{padding:20px;overflow:auto}.modal-f{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end}
+
+/* การ์ดเลือกรูปแบบกระดาษ / ตัวอักษร ในหน้าต่างสร้างชุด */
+.pick2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pick2 .pk{display:flex;align-items:center;gap:10px;border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;transition:.15s}
+.pick2 .pk:hover{border-color:#c7cbe6}
+.pick2 .pk.on{border-color:var(--brand);background:rgba(99,102,241,.06)}
+.pick2 .pk input{display:none}
+.pk-ic{flex:0 0 auto;color:var(--brand);display:flex}
+.pk-ic svg{width:26px;height:26px;stroke:currentColor;fill:none;stroke-width:1.8}
+.pk-t b{display:block;font-size:.86rem}.pk-t span{display:block;font-size:.72rem;color:var(--sub)}
+.pick3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.pick3 .pk3{display:flex;flex-direction:column;align-items:center;gap:2px;border:1.5px solid var(--line);border-radius:12px;padding:12px 8px;cursor:pointer;transition:.15s;text-align:center}
+.pick3 .pk3:hover{border-color:#c7cbe6}
+.pick3 .pk3.on{border-color:var(--brand);background:rgba(99,102,241,.06)}
+.pick3 .pk3 input{display:none}
+.pick3 .pk3 b{font-size:1rem;letter-spacing:.12em}.pick3 .pk3 span{font-size:.72rem;color:var(--sub)}
+@media(max-width:480px){.pick2{grid-template-columns:1fr}}
 
 .empty{text-align:center;padding:44px 16px}
 .empty .sicon{margin:0 auto 14px;opacity:.5}
