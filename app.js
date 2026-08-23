@@ -1,5 +1,5 @@
 /* ============================================================
-   SmartExam — ระบบตรวจข้อสอบ (ทำงานบนเบราว์เซอร์ล้วน)
+   ScanScore — ระบบสแกนตรวจข้อสอบ (ทำงานบนเบราว์เซอร์ล้วน)
    ฐานข้อมูล: localStorage  |  รันบน GitHub Pages ได้ทันที
    ============================================================ */
 (function () {
@@ -117,7 +117,7 @@ function renderShell() {
         <path d="M19 37.5h-3a2 2 0 0 1-2-2V33" stroke="#fff" stroke-opacity=".85" stroke-width="2.4" stroke-linecap="round"/>
         <path d="m17.5 24.2 4.6 4.6 8.4-9.6" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      <div><b>SmartExam</b><span>ระบบตรวจข้อสอบอัจฉริยะ</span></div>
+      <div><b>ScanScore</b><span>ระบบตรวจข้อสอบอัจฉริยะ</span></div>
     </a>
     <div class="sb-cap">เมนูครูผู้สอน</div>
     <nav id="nav"></nav>
@@ -150,7 +150,7 @@ function renderShell() {
     </div>
     <div id="view"></div>
     <footer class="noprint px-3 py-3 text-center muted" style="font-size:.76rem;border-top:1px solid var(--line)">
-      SmartExam · ${thaiDate(new Date(), true)} · ฐานข้อมูลถูกเก็บในเบราว์เซอร์เครื่องนี้
+      ScanScore · ${thaiDate(new Date(), true)} · ฐานข้อมูลถูกเก็บในเบราว์เซอร์เครื่องนี้
     </footer>
   </div>`;
 
@@ -328,7 +328,6 @@ function timeAgo(ts) {
    PAGE · Sheets (list + editor)
    ============================================================ */
 function pageSheets(params) {
-  if (params.get('new') === '1') return sheetEditor(null);
   if (params.get('edit'))        return sheetEditor(params.get('edit'));
   const sheets = DB.sheets;
 
@@ -367,81 +366,157 @@ function pageSheets(params) {
     confirmBox(`ลบ "${s.name}" และผลตรวจที่เกี่ยวข้องทั้งหมด?`, () => { DB.delSheet(b.dataset.del); pageSheets(new URLSearchParams()); toast('ลบแล้ว', 'warn'); }, 'ลบ');
   }));
   $$('[data-print]').forEach(b => b.addEventListener('click', () => printSheet(DB.sheet(b.dataset.print))));
+
+  if (params.get('new') === '1') { openSheetModal(null); try { history.replaceState(null, '', '#/sheets'); } catch(e){} }
 }
 
-function sheetEditor(id) {
+/* หน้าต่างตั้งค่าชุดข้อสอบ (modal) — เหมือนต้นฉบับ */
+function openSheetModal(id) {
   const editing = !!id;
-  const s = editing ? DB.sheet(id) : { id: uid(), name: '', subject: '', questions: 20, choices: 4, labelKind: 'thai', key: Array(20).fill(null) };
+  const b = editing ? DB.sheet(id) : {};
+  if (editing && !b) return;
+  const w = { name:b.name||'', subject:b.subject||'', paper:b.paper||'a4',
+    questions:b.questions||20, choices:b.choices||4, idDigits:b.idDigits||0, labelKind:b.labelKind||'thai' };
+
+  const body = `<div class="row g-3">
+    <div class="col-12 field mb-0"><label>ชื่อชุดข้อสอบ *</label><input class="inp" id="mName" placeholder="เช่น สอบกลางภาค 1/2568" value="${esc(w.name)}"></div>
+    <div class="col-12 field mb-0"><label>วิชา / ระดับชั้น</label><input class="inp" id="mSubj" placeholder="เช่น วิทยาศาสตร์ ม.1" value="${esc(w.subject)}"></div>
+    <div class="col-12 field mb-0"><label>รูปแบบกระดาษ</label><div class="pick2">
+      <label class="pk ${w.paper==='a4'?'on':''}"><input type="radio" name="mPaper" value="a4" ${w.paper==='a4'?'checked':''}>
+        <div class="pk-ic">${svg('<rect width="14" height="18" x="5" y="3" rx="1"/>')}</div><div class="pk-t"><b>A4 เต็มแผ่น</b><span>1 ชุด/แผ่น · ถึง 100 ข้อ</span></div></label>
+      <label class="pk ${w.paper==='half'?'on':''}"><input type="radio" name="mPaper" value="half" ${w.paper==='half'?'checked':''}>
+        <div class="pk-ic">${svg('<rect width="18" height="14" x="3" y="5" rx="1"/><line x1="12" y1="5" x2="12" y2="19"/>')}</div><div class="pk-t"><b>ครึ่งแผ่น แนวนอน</b><span>2 ชุด/แผ่น · ประหยัดกระดาษ</span></div></label>
+    </div></div>
+    <div class="col-4 field mb-0"><label>จำนวนข้อ <span class="muted" style="font-weight:400">(สูงสุด 200)</span></label><input class="inp" id="mQ" type="number" min="1" max="200" value="${w.questions}"></div>
+    <div class="col-4 field mb-0"><label>ตัวเลือก</label><select class="inp" id="mC">${[2,3,4,5,6].map(n=>`<option value="${n}" ${n===w.choices?'selected':''}>${n} ตัวเลือก</option>`).join('')}</select></div>
+    <div class="col-4 field mb-0"><label>หลักรหัส นร.</label><select class="inp" id="mID">${[0,3,4,5,6,7,8].map(n=>`<option value="${n}" ${n===w.idDigits?'selected':''}>${n===0?'ไม่มี':n+' หลัก'}</option>`).join('')}</select></div>
+    <div class="col-12 field mb-0"><label>ตัวอักษรตัวเลือก</label><div class="pick3">
+      ${[['thai','ก ข ค ง','ภาษาไทย'],['eng','A B C D','อังกฤษ'],['number','1 2 3 4','ตัวเลข']].map(([v,big,sm])=>
+        `<label class="pk3 ${w.labelKind===v?'on':''}"><input type="radio" name="mLbl" value="${v}" ${w.labelKind===v?'checked':''}><b>${big}</b><span>${sm}</span></label>`).join('')}
+    </div><div class="muted" style="font-size:.74rem;margin-top:6px">เลือก A B C D E สำหรับวิชาภาษาอังกฤษ หรือ 1 2 3 4 5 ได้ · มีผลทั้งกระดาษที่พิมพ์และหน้าคีย์เฉลย</div></div>
+  </div>`;
+
+  const { ov } = modal({
+    title: editing ? 'แก้ไขข้อมูลชุดข้อสอบ' : 'สร้างกระดาษคำตอบ',
+    body,
+    actions: [
+      { label: 'ยกเลิก' },
+      { label: editing ? 'บันทึก' : 'สร้างและคีย์เฉลย', cls: 'btn-brand', onClick: (ovv) => {
+        const name = $('#mName', ovv).value.trim();
+        if (!name) { toast('กรุณาใส่ชื่อชุดข้อสอบ', 'err'); $('#mName', ovv).focus(); return false; }
+        const patch = {
+          name,
+          subject: $('#mSubj', ovv).value.trim(),
+          paper: ($('input[name=mPaper]:checked', ovv) || {}).value || 'a4',
+          questions: Math.max(1, Math.min(200, +$('#mQ', ovv).value || 1)),
+          choices: +$('#mC', ovv).value,
+          idDigits: +$('#mID', ovv).value,
+          labelKind: ($('input[name=mLbl]:checked', ovv) || {}).value || 'thai',
+        };
+        if (editing) {
+          const s = DB.sheet(id);
+          let key = Array.isArray(s.key) ? s.key.slice(0, patch.questions) : [];
+          while (key.length < patch.questions) key.push(null);
+          key = key.map(v => (v !== null && v >= patch.choices) ? null : v);
+          DB.updSheet(id, { ...patch, key });
+          toast('บันทึกแล้ว', 'ok');
+          const target = '#/sheets?edit=' + id;
+          if (location.hash === target) route(); else location.hash = target;
+        } else {
+          const nid = uid();
+          DB.addSheet({ id: nid, ...patch, key: Array(patch.questions).fill(null) });
+          location.hash = '#/sheets?edit=' + nid;
+        }
+      } }
+    ]
+  });
+  // ไฮไลต์การ์ดที่เลือก
+  $$('input[name=mPaper]', ov).forEach(r => r.addEventListener('change', () => { $$('.pk', ov).forEach(p => p.classList.remove('on')); r.closest('.pk').classList.add('on'); }));
+  $$('input[name=mLbl]', ov).forEach(r => r.addEventListener('change', () => { $$('.pk3', ov).forEach(p => p.classList.remove('on')); r.closest('.pk3').classList.add('on'); }));
+}
+
+/* หน้าคีย์เฉลย (เข้าจากการสร้าง/แก้ไขชุด) */
+function sheetEditor(id) {
+  const s = DB.sheet(id);
   if (!s) { location.hash = '#/sheets'; return; }
-  const work = JSON.parse(JSON.stringify(s));
+  let key = Array.isArray(s.key) ? s.key.slice() : Array(s.questions).fill(null);
+  if (key.length !== s.questions) { const k = Array(s.questions).fill(null); for (let i=0;i<Math.min(s.questions,key.length);i++) k[i]=key[i]; key=k; }
+  key = key.map(v => (v !== null && v >= s.choices) ? null : v);
+  const paperLabel = s.paper === 'half' ? 'ครึ่งแผ่น · 2 ชุด/แผ่น' : 'A4 เต็มแผ่น';
 
   $('#view').innerHTML = `<div class="wrap" style="max-width:960px">
     <a href="#/sheets" class="btn btn-ghost btn-sm mb-3">${svg('<path d="m15 18-6-6 6-6"/>','ic-sm')} กลับ</a>
-    <div class="cardx mb-3"><div class="cardx-h"><h2 class="fw-6 mb-0" style="font-size:1rem">${editing ? 'แก้ไขชุดข้อสอบ' : 'สร้างชุดข้อสอบใหม่'}</h2></div>
-      <div class="cardx-b"><div class="row g-3">
-        <div class="col-md-6 field mb-0"><label>ชื่อชุดข้อสอบ *</label><input class="inp" id="fName" placeholder="เช่น สอบกลางภาค ม.3" value="${esc(work.name)}"></div>
-        <div class="col-md-6 field mb-0"><label>วิชา</label><input class="inp" id="fSubj" placeholder="เช่น คณิตศาสตร์" value="${esc(work.subject)}"></div>
-        <div class="col-md-4 field mb-0"><label>จำนวนข้อ</label><input class="inp" id="fQ" type="number" min="1" max="200" value="${work.questions}"></div>
-        <div class="col-md-4 field mb-0"><label>จำนวนตัวเลือก</label>
-          <select class="inp" id="fC">${[2,3,4,5,6].map(n=>`<option value="${n}" ${n===work.choices?'selected':''}>${n} ตัวเลือก</option>`).join('')}</select></div>
-        <div class="col-md-4 field mb-0"><label>รูปแบบตัวเลือก</label>
-          <select class="inp" id="fL">
-            <option value="thai" ${work.labelKind==='thai'?'selected':''}>ก ข ค ง</option>
-            <option value="eng" ${work.labelKind==='eng'?'selected':''}>A B C D</option>
-            <option value="number" ${work.labelKind==='number'?'selected':''}>1 2 3 4</option>
-          </select></div>
-      </div></div>
-    </div>
+    <div class="cardx mb-3"><div class="cardx-b d-flex flex-wrap align-items-center gap-3">
+      <div class="flex-grow-1">
+        <div class="fw-6" style="font-size:1.05rem">${esc(s.name)}</div>
+        <div class="muted" style="font-size:.82rem">${esc(s.subject||'ไม่ระบุวิชา')}</div>
+        <div class="d-flex flex-wrap gap-1 mt-2">
+          <span class="chip chip-muted">${s.questions} ข้อ</span>
+          <span class="chip chip-muted">${s.choices} ตัวเลือก</span>
+          <span class="chip chip-muted">${paperLabel}</span>
+          <span class="chip chip-muted">${s.idDigits ? ('รหัส '+s.idDigits+' หลัก') : 'ไม่ฝนรหัส'}</span>
+        </div>
+      </div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-ghost btn-sm" id="btnEditInfo">${svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>','ic-sm')} แก้ไขข้อมูล</button>
+        <button class="btn btn-ghost btn-sm" id="btnPrint">${svg('<path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/>','ic-sm')} พิมพ์</button>
+      </div>
+    </div></div>
 
     <div class="cardx"><div class="cardx-h">
       <h2 class="fw-6 mb-0 d-flex align-items-center gap-2" style="font-size:1rem">
         <span style="color:var(--brand)">${svg('<path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>')}</span>คีย์เฉลย</h2>
       <div class="d-flex gap-2"><button class="btn btn-ghost btn-sm" id="btnClear">ล้างเฉลย</button>
-        <span class="chip chip-muted" id="keyStat">0/${work.questions}</span></div></div>
+        <span class="chip chip-muted" id="keyStat">0/${s.questions}</span></div></div>
       <div class="cardx-b"><div class="keygrid" id="keyGrid"></div></div>
     </div>
 
     <div class="d-flex justify-content-end gap-2 mt-3">
-      <a href="#/sheets" class="btn btn-ghost btn-sm px-3">ยกเลิก</a>
-      <button class="btn btn-brand btn-sm px-4" id="btnSave">${editing?'บันทึกการแก้ไข':'บันทึกชุดข้อสอบ'}</button>
+      <a href="#/sheets" class="btn btn-ghost btn-sm px-3">เสร็จสิ้น</a>
+      <button class="btn btn-brand btn-sm px-4" id="btnSave">บันทึกเฉลย</button>
     </div>
   </div>`;
 
+  const labels = labelsFor(s.labelKind, s.choices);
   const rebuildKeyGrid = () => {
-    const nQ = work.questions, labels = labelsFor(work.labelKind, work.choices);
-    if (work.key.length !== nQ) { const k = Array(nQ).fill(null); for (let i=0;i<Math.min(nQ,work.key.length);i++) k[i]=work.key[i]; work.key=k; }
-    // drop out-of-range answers if choices reduced
-    work.key = work.key.map(v => (v!==null && v>=work.choices) ? null : v);
-    $('#keyGrid').innerHTML = Array.from({length:nQ},(_,q)=>`<div class="keyrow"><span class="qn">${q+1}.</span>
-      ${labels.map((L,c)=>`<button class="opt ${work.key[q]===c?'sel':''}" data-q="${q}" data-c="${c}">${L}</button>`).join('')}</div>`).join('');
-    $$('#keyGrid .opt').forEach(b=>b.addEventListener('click',()=>{
-      const q=+b.dataset.q,c=+b.dataset.c; work.key[q]=work.key[q]===c?null:c; rebuildKeyGrid();
+    $('#keyGrid').innerHTML = Array.from({length:s.questions},(_,q)=>`<div class="keyrow"><span class="qn">${q+1}.</span>
+      ${labels.map((L,c)=>`<button class="opt ${key[q]===c?'sel':''}" data-q="${q}" data-c="${c}">${L}</button>`).join('')}</div>`).join('');
+    $$('#keyGrid .opt').forEach(bt=>bt.addEventListener('click',()=>{
+      const q=+bt.dataset.q,c=+bt.dataset.c; key[q]=key[q]===c?null:c; rebuildKeyGrid();
     }));
-    const done = work.key.filter(v=>v!==null).length;
-    $('#keyStat').textContent = `${done}/${nQ}`;
-    $('#keyStat').className = 'chip ' + (done===nQ?'chip-ok':'chip-muted');
+    const done = key.filter(v=>v!==null).length;
+    $('#keyStat').textContent = `${done}/${s.questions}`;
+    $('#keyStat').className = 'chip ' + (done===s.questions?'chip-ok':'chip-muted');
   };
   rebuildKeyGrid();
 
-  $('#fQ').addEventListener('change', e => { let v=Math.max(1,Math.min(200,+e.target.value||1)); e.target.value=v; work.questions=v; rebuildKeyGrid(); });
-  $('#fC').addEventListener('change', e => { work.choices=+e.target.value; rebuildKeyGrid(); });
-  $('#fL').addEventListener('change', e => { work.labelKind=e.target.value; rebuildKeyGrid(); });
-  $('#btnClear').addEventListener('click', () => { work.key=Array(work.questions).fill(null); rebuildKeyGrid(); });
-
-  $('#btnSave').addEventListener('click', () => {
-    work.name = $('#fName').value.trim(); work.subject = $('#fSubj').value.trim();
-    if (!work.name) { toast('กรุณาใส่ชื่อชุดข้อสอบ', 'err'); $('#fName').focus(); return; }
-    if (editing) DB.updSheet(id, work); else DB.addSheet(work);
-    toast('บันทึกแล้ว', 'ok'); location.hash = '#/sheets';
-  });
+  const persist = () => DB.updSheet(id, { key: key.slice() });
+  $('#btnClear').addEventListener('click', () => { key = Array(s.questions).fill(null); rebuildKeyGrid(); });
+  $('#btnEditInfo').addEventListener('click', () => { persist(); openSheetModal(id); });
+  $('#btnPrint').addEventListener('click', () => { persist(); printSheet(DB.sheet(id)); });
+  $('#btnSave').addEventListener('click', () => { persist(); toast('บันทึกเฉลยแล้ว', 'ok'); location.hash = '#/sheets'; });
 }
 
 /* ============================================================
    ANSWER-SHEET LAYOUT (ใช้ร่วมกันทั้งพิมพ์และสแกน)
    canonical 800 x 1120
    ============================================================ */
-function buildLayout(nQ, nC) {
-  const W = 800, H = 1120, pad = 56, headerH = 158;
+function buildLayout(nQ, nC, idDigits = 0) {
+  const W = 800, H = 1120, pad = 56;
+  let headerH = 158, idBlock = null;
+  if (idDigits > 0) {
+    const top = 150, labelY = top + 14, boxY = top + 22, boxH = 22;
+    const gTop = top + 66, rID = 8, rowStep = 15, colStep = 44, blockLeft = pad + 30;
+    const cols = [];
+    for (let d = 0; d < idDigits; d++) {
+      const cx = blockLeft + d * colStep, bub = [];
+      for (let v = 0; v < 10; v++) bub.push({ v, x: cx, y: gTop + v * rowStep });
+      cols.push({ d, x: cx, bubbles: bub });
+    }
+    const bandBottom = gTop + 9 * rowStep + rID + 6;
+    idBlock = { digits: idDigits, cols, labelY, boxY, boxH, gridTop: gTop, rID, rowStep, colStep, blockLeft, bandBottom };
+    headerH = bandBottom + 16;
+  }
   const gridTop = headerH, gridBottom = H - 40;
   const numCols = Math.ceil(nQ / 25), perCol = Math.ceil(nQ / numCols);
   const colGap = 16, colW = (W - 2 * pad - (numCols - 1) * colGap) / numCols;
@@ -455,39 +530,63 @@ function buildLayout(nQ, nC) {
     for (let c = 0; c < nC; c++) choices.push({ c, x: bx0 + sp * (c + 0.5), y: cy });
     bubbles.push({ q, numX: x0 + 6, numY: cy, choices });
   }
-  return { W, H, pad, headerH, R, bubbles, numCols };
+  return { W, H, pad, headerH, R, bubbles, numCols, idBlock };
 }
 
-function printSheet(s) {
-  if (!s) return;
-  const L = buildLayout(s.questions, s.choices), labels = labelsFor(s.labelKind, s.choices);
+function buildSheetSVG(s) {
+  const idDigits = s.idDigits || 0;
+  const L = buildLayout(s.questions, s.choices, idDigits), labels = labelsFor(s.labelKind, s.choices);
   const marks = L.bubbles.map(b => `
     <text x="${b.numX}" y="${b.numY + 4}" font-size="13" font-family="Prompt" fill="#111" font-weight="600">${b.q + 1}</text>
     ${b.choices.map((ch, i) => `<circle cx="${ch.x}" cy="${ch.y}" r="${L.R}" fill="none" stroke="#111" stroke-width="1.4"/>
       <text x="${ch.x}" y="${ch.y + 4}" text-anchor="middle" font-size="11" font-family="Prompt" fill="#333">${labels[i]}</text>`).join('')}`).join('');
 
-  const svgSheet = `<svg viewBox="0 0 ${L.W} ${L.H}" xmlns="http://www.w3.org/2000/svg" width="100%">
+  let idSvg = '';
+  if (L.idBlock) {
+    const ib = L.idBlock;
+    idSvg = `<text x="${L.pad}" y="${ib.labelY}" font-size="12" font-family="Prompt" fill="#111" font-weight="600">รหัสนักเรียน · เขียนเลขในช่องแล้วระบายวงให้ตรง</text>`
+      + ib.cols.map(col => `<rect x="${col.x-16}" y="${ib.boxY}" width="32" height="${ib.boxH}" rx="4" fill="none" stroke="#111" stroke-width="1.2"/>`).join('')
+      + ib.cols.map(col => col.bubbles.map(b =>
+          `<circle cx="${b.x}" cy="${b.y}" r="${ib.rID}" fill="none" stroke="#111" stroke-width="1.1"/>
+           <text x="${b.x}" y="${b.y+3}" text-anchor="middle" font-size="9" font-family="Prompt" fill="#666">${b.v}</text>`).join('')).join('');
+  }
+  const nameLine = `<text x="${L.pad+14}" y="118" font-size="14" font-family="Prompt" fill="#111">ชื่อ-สกุล ...............................................</text>`
+    + (L.idBlock ? '' : `<text x="470" y="118" font-size="14" font-family="Prompt" fill="#111">รหัส/เลขที่ .......................</text>`);
+
+  return `<svg viewBox="0 0 ${L.W} ${L.H}" xmlns="http://www.w3.org/2000/svg" width="100%">
     <rect x="8" y="8" width="${L.W-16}" height="${L.H-16}" fill="none" stroke="#111" stroke-width="6"/>
     <rect x="20" y="20" width="34" height="34" fill="#111"/><rect x="${L.W-54}" y="20" width="34" height="34" fill="#111"/>
     <rect x="20" y="${L.H-54}" width="34" height="34" fill="#111"/><rect x="${L.W-54}" y="${L.H-54}" width="34" height="34" fill="#111"/>
     <text x="${L.W/2}" y="52" text-anchor="middle" font-size="26" font-weight="600" font-family="Prompt" fill="#111">${esc(s.name)}</text>
     <text x="${L.W/2}" y="80" text-anchor="middle" font-size="15" font-family="Prompt" fill="#444">${esc(s.subject||'')} · ${s.questions} ข้อ</text>
-    <text x="70" y="118" font-size="14" font-family="Prompt" fill="#111">ชื่อ-สกุล ...................................................</text>
-    <text x="470" y="118" font-size="14" font-family="Prompt" fill="#111">รหัส/เลขที่ .......................</text>
-    <line x1="56" y1="140" x2="${L.W-56}" y2="140" stroke="#ccc" stroke-width="1"/>
-    <text x="56" y="152" font-size="10.5" font-family="Prompt" fill="#888">ระบายวงกลมให้เต็มด้วยดินสอ/ปากกาสีเข้ม · ถ่ายให้เห็นกรอบสี่เหลี่ยมครบทั้งใบ</text>
+    ${nameLine}
+    <line x1="${L.pad}" y1="${L.headerH-16}" x2="${L.W-L.pad}" y2="${L.headerH-16}" stroke="#ccc" stroke-width="1"/>
+    <text x="${L.pad}" y="${L.headerH-4}" font-size="10.5" font-family="Prompt" fill="#888">ระบายวงกลมให้เต็มด้วยดินสอ/ปากกาสีเข้ม · ถ่ายให้เห็นกรอบสี่เหลี่ยมครบทั้งใบ</text>
+    ${idSvg}
     ${marks}
   </svg>`;
+}
+
+function printSheet(s) {
+  if (!s) return;
+  const svgSheet = buildSheetSVG(s);
+  const half = (s.paper === 'half');
+  const pageSize = half ? 'A4 landscape' : 'A4 portrait';
+  const bodyContent = half
+    ? `<div class="two"><div class="one">${svgSheet}</div><div class="one">${svgSheet}</div></div>`
+    : `<div class="page">${svgSheet}</div>`;
 
   const w = window.open('', '_blank');
   w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>${esc(s.name)}</title>
     <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;600&display=swap" rel="stylesheet">
-    <style>@page{size:A4 portrait;margin:10mm}body{margin:0;font-family:Prompt,sans-serif}
+    <style>@page{size:${pageSize};margin:8mm}body{margin:0;font-family:Prompt,sans-serif}
     .bar{padding:10px 14px;text-align:center;background:#f1f5f9;border-bottom:1px solid #e2e8f0}
     button{font-family:inherit;padding:.5rem 1.2rem;border:0;border-radius:8px;background:#6366f1;color:#fff;cursor:pointer;font-size:.9rem}
-    .page{max-width:800px;margin:0 auto;padding:12px}@media print{.bar{display:none}.page{padding:0}}</style></head>
-    <body><div class="bar noprint"><button onclick="window.print()">🖨️ พิมพ์ / บันทึกเป็น PDF</button></div>
-    <div class="page">${svgSheet}</div></body></html>`);
+    .page{max-width:800px;margin:0 auto;padding:12px}
+    .two{display:flex;gap:8mm;align-items:flex-start;padding:8px}.two .one{flex:1 1 0;min-width:0}
+    @media print{.bar{display:none}.page,.two{padding:0}}</style></head>
+    <body><div class="bar noprint"><button onclick="window.print()">🖨️ พิมพ์ / บันทึกเป็น PDF</button>${half?'&nbsp; <span style="color:#64748b;font-size:.82rem">โหมดครึ่งแผ่น · 2 ชุด/แผ่น · ตัดกลางหน้าเพื่อแยกใบ</span>':''}</div>
+    ${bodyContent}</body></html>`);
   w.document.close();
 }
 
@@ -630,14 +729,14 @@ function gradeFromCanvas(srcCanvas) {
   if (ok) { x0=left; y0=top; x1=right; y1=bot; }
   else    { x0=W*0.04; y0=H*0.04; x1=W*0.96; y1=H*0.96; }  // fallback: assume aligned in frame
 
-  const L = buildLayout(s.questions, s.choices);
+  const L = buildLayout(s.questions, s.choices, s.idDigits || 0);
+  const scale = (x1 - x0) / L.W;
   const mapX = X => x0 + (X / L.W) * (x1 - x0);
   const mapY = Y => y0 + (Y / L.H) * (y1 - y0);
-  const rSrc = Math.max(3, (L.R * 0.72) * ((x1 - x0) / L.W));
 
-  // ความเข้มเฉลี่ยของวง (0 = ว่าง/ขาว, 1 = ดำเต็ม) — ทนต่อแสงมากกว่าไบนารี
-  const meanDark = (X, Y) => {
-    const cx = mapX(X)|0, cy = mapY(Y)|0, r = rSrc|0;
+  // ความเข้มเฉลี่ยของวง (0 = ว่าง/ขาว, 1 = ดำเต็ม) — ระบุรัศมี canonical ได้ ทนต่อแสงมากกว่าไบนารี
+  const meanDark = (X, Y, rCanon) => {
+    const cx = mapX(X)|0, cy = mapY(Y)|0, r = Math.max(2, (rCanon * 0.72 * scale)|0);
     let sum=0, tot=0;
     for (let dy=-r;dy<=r;dy++) for (let dx=-r;dx<=r;dx++){
       if (dx*dx+dy*dy>r*r) continue;
@@ -649,13 +748,25 @@ function gradeFromCanvas(srcCanvas) {
 
   const answers = [], flags = [];
   for (const b of L.bubbles) {
-    const fills = b.choices.map(ch => meanDark(ch.x, ch.y));
+    const fills = b.choices.map(ch => meanDark(ch.x, ch.y, L.R));
     let best=-1, bv=0, second=0;
     fills.forEach((f,i)=>{ if(f>bv){second=bv;bv=f;best=i;} else if(f>second){second=f;} });
     if (bv < 0.30) { answers.push(null); flags.push('blank'); }         // ไม่มีร่องรอยระบายชัด
     else if (bv - second < 0.15 && second > 0.25) { answers.push(best); flags.push('unsure'); } // ระบายซ้ำ/ไม่ชัด
     else { answers.push(best); flags.push('ok'); }
   }
+
+  // อ่านรหัสนักเรียนจากตารางฝน (ถ้ามี)
+  let readId = '';
+  if (L.idBlock) {
+    for (const col of L.idBlock.cols) {
+      const fills = col.bubbles.map(b => meanDark(b.x, b.y, L.idBlock.rID));
+      let best=-1, bv=0, second=0;
+      fills.forEach((f,i)=>{ if(f>bv){second=bv;bv=f;best=i;} else if(f>second){second=f;} });
+      readId += (bv >= 0.30 && (bv - second) >= 0.10) ? String(best) : '_';
+    }
+  }
+  scanState.studentId = readId;
 
   // preview cropped region
   const prev = document.createElement('canvas'); prev.width=L.W; prev.height=L.H;
@@ -673,7 +784,7 @@ function manualEntry() {
   const answers = Array(s.questions).fill(null);
   const stage = $('#scStage');
   if (stage) stage.innerHTML = `<div class="d-flex align-items-center justify-content-center h-100 text-center px-4" style="color:#94a3b8">โหมดกรอกเอง — เลือกคำตอบทางขวา</div>`;
-  scanState.answers = answers; scanState.flags = answers.map(()=> 'blank');
+  scanState.answers = answers; scanState.flags = answers.map(()=> 'blank'); scanState.studentId = '';
   renderReview(s, answers, answers.map(()=> 'blank'));
 }
 
@@ -681,6 +792,8 @@ function renderReview(s, answers, flags) {
   const labels = labelsFor(s.labelKind, s.choices);
   const keyDone = DB.keyDone(s);
   const box = $('#scResult');
+  const readId = scanState.studentId || '';
+  const idPartial = readId.includes('_');
 
   const grid = () => answers.map((a,q)=>{
     const key = s.key[q];
@@ -694,7 +807,8 @@ function renderReview(s, answers, flags) {
   box.innerHTML = `
     <div class="row g-2 mb-3">
       <div class="col-6"><input class="inp" id="rvName" placeholder="ชื่อ-สกุล นักเรียน"></div>
-      <div class="col-6"><input class="inp" id="rvId" placeholder="รหัส/เลขที่"></div>
+      <div class="col-6"><input class="inp" id="rvId" placeholder="รหัส/เลขที่" value="${esc(readId)}">
+        ${s.idDigits ? `<div class="muted" style="font-size:.72rem;margin-top:3px">${readId ? (idPartial ? '⚠ อ่านรหัสได้ไม่ครบ (_ = ไม่ชัด) โปรดแก้ให้ถูก' : '✓ อ่านรหัสจากที่ฝนอัตโนมัติ') : 'ไม่พบการฝนรหัส'}</div>` : ''}</div>
     </div>
     <div class="d-flex align-items-center justify-content-between mb-2">
       <div class="muted" style="font-size:.8rem">แตะเพื่อแก้คำตอบ · <span style="outline:2px solid #86efac;border-radius:3px;padding:0 3px">กรอบเขียว</span> = เฉลย</div>
